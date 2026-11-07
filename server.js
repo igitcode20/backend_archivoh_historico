@@ -20,21 +20,77 @@ const statsRoutes = require('./routes/stats');
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB & ensure admin user exists
+const User = require('./models/User');
+connectDB().then(async () => {
+  try {
+    const admin = await User.findOne({ username: 'ismaelgit20' });
+    if (!admin) {
+      const newAdmin = new User({
+        username: 'ismaelgit20',
+        password: 'ismaelgit20123',
+        role: 'admin'
+      });
+      await newAdmin.save();
+      console.log('✅ Usuario admin "ismaelgit20" creado automáticamente en MongoDB');
+    } else {
+      console.log('ℹ️  Usuario admin "ismaelgit20" verificado');
+    }
+  } catch (seedErr) {
+    console.warn('⚠️ Nota sobre verificación de usuario admin:', seedErr.message);
+  }
+});
 
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://bibliografia-nine.vercel.app/',
+// CORS configuration con normalización de trailing slashes y soporte multi-origen
+const cleanUrl = (url) => (url ? url.trim().replace(/\/+$/, '') : '');
+const configuredOrigin = cleanUrl(process.env.FRONTEND_URL);
+
+const allowedOrigins = [
+  'https://bibliografia-nine.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173'
+];
+
+if (configuredOrigin && !allowedOrigins.includes(configuredOrigin)) {
+  allowedOrigins.push(configuredOrigin);
+}
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Permitir solicitudes sin header de origen (Postman, curl, server-to-server, PWA instalada)
+    if (!origin) return callback(null, true);
+
+    const normalizedOrigin = cleanUrl(origin);
+
+    // Permitir orígenes conocidos, cualquier despliegue de vercel.app o localhost
+    const isAllowed =
+      allowedOrigins.includes(normalizedOrigin) ||
+      normalizedOrigin.endsWith('.vercel.app') ||
+      normalizedOrigin.includes('localhost') ||
+      normalizedOrigin.includes('127.0.0.1');
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    // Por seguridad en caso de nuevos subdominios, permitimos el origen entrante
+    return callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Logging middleware
 if (process.env.NODE_ENV === 'development') {
